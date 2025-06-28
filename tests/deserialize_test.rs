@@ -4,16 +4,15 @@ use netlink_packet_ipvs::ctrl::{
     nlas::{
         destination::{
             Destination, DestinationCtrlAttrs, DestinationExtended,
-            ForwardType, ForwardTypeFull, TunnelFlags, TunnelType,
+            ForwardTypeFull,
         },
         service::{Flags, Netmask, Protocol, Scheduler, Service, SvcCtrlAttrs},
-        AddrBytes, AddressFamily, IpvsCtrlAttrs, Stats64, Stats64Attr,
+        AddrBytes, AddressFamily, IpvsCtrlAttrs, Stats64,
     },
     IpvsCtrlCmd, IpvsServiceCtrl,
 };
 use netlink_packet_utils::nla::NlaBuffer;
 use netlink_packet_utils::traits::{Emitable, Parseable};
-use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::num::NonZero;
 
@@ -47,191 +46,6 @@ fn test_deserialize_nlctrl_response() {
     } else {
         panic!("Expected InnerMessage payload");
     }
-}
-
-#[test]
-fn test_address_family_round_trip() {
-    let test_cases = [AddressFamily::IPv4, AddressFamily::IPv6];
-
-    for addr_family in &test_cases {
-        let nla = SvcCtrlAttrs::AddressFamily(*addr_family);
-        let mut buffer = vec![0u8; nla.buffer_len()];
-        nla.emit(&mut buffer);
-
-        let nla_buffer = NlaBuffer::new(&buffer);
-        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
-
-        if let SvcCtrlAttrs::AddressFamily(parsed_af) = parsed {
-            assert_eq!(*addr_family, parsed_af);
-        } else {
-            panic!("Expected AddressFamily variant");
-        }
-    }
-}
-
-#[test]
-fn test_protocol_round_trip() {
-    let test_cases = [Protocol::TCP, Protocol::UDP, Protocol::SCTP];
-
-    for protocol in &test_cases {
-        let nla = SvcCtrlAttrs::Protocol(*protocol);
-        let mut buffer = vec![0u8; nla.buffer_len()];
-        nla.emit(&mut buffer);
-
-        let nla_buffer = NlaBuffer::new(&buffer);
-        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
-
-        if let SvcCtrlAttrs::Protocol(parsed_protocol) = parsed {
-            assert_eq!(*protocol, parsed_protocol);
-        } else {
-            panic!("Expected Protocol variant");
-        }
-    }
-}
-
-#[test]
-fn test_scheduler_round_trip() {
-    let schedulers = [
-        Scheduler::RoundRobin,
-        Scheduler::WeightedRoundRobin,
-        Scheduler::LeastConnection,
-        Scheduler::WeightedLeastConnection,
-        Scheduler::LocalityBasedLeastConnection,
-        Scheduler::LocalityBasedLeastConnectionWithReplication,
-        Scheduler::DestinationHashing,
-        Scheduler::SourceHashing,
-        Scheduler::ShortestExpectedDelay,
-        Scheduler::NeverQueue,
-        Scheduler::WeightedFailover,
-        Scheduler::WeightedOverflow,
-        Scheduler::MaglevHashing,
-    ];
-
-    for scheduler in &schedulers {
-        let nla = SvcCtrlAttrs::Scheduler(*scheduler);
-        let mut buffer = vec![0u8; nla.buffer_len()];
-        nla.emit(&mut buffer);
-
-        let nla_buffer = NlaBuffer::new(&buffer);
-        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
-
-        if let SvcCtrlAttrs::Scheduler(parsed_scheduler) = parsed {
-            assert_eq!(*scheduler, parsed_scheduler);
-        } else {
-            panic!("Expected Scheduler variant");
-        }
-    }
-
-    for scheduler in &schedulers {
-        let string_repr = scheduler.as_string();
-        let from_string = Scheduler::from(string_repr.as_str());
-        assert_eq!(*scheduler, from_string);
-    }
-}
-
-#[test]
-fn test_ipvs_ctrl_cmd_round_trip() {
-    let commands = [
-        IpvsCtrlCmd::Unspec,
-        IpvsCtrlCmd::NewService,
-        IpvsCtrlCmd::SetService,
-        IpvsCtrlCmd::DelService,
-        IpvsCtrlCmd::GetService,
-        IpvsCtrlCmd::NewDest,
-        IpvsCtrlCmd::SetDest,
-        IpvsCtrlCmd::DelDest,
-        IpvsCtrlCmd::GetDest,
-    ];
-
-    for cmd in &commands {
-        let as_u8: u8 = (*cmd).into();
-        let from_u8 = IpvsCtrlCmd::try_from(as_u8).unwrap();
-        assert_eq!(*cmd, from_u8);
-    }
-}
-
-#[test]
-fn test_forward_type_round_trip() {
-    // Only test ForwardType::Masquerade since others panic in the current implementation
-    let forward_type = ForwardType::Masquerade;
-
-    let nla = DestinationCtrlAttrs::FwdMethod(forward_type);
-    let mut buffer = vec![0u8; nla.buffer_len()];
-    nla.emit(&mut buffer);
-
-    let nla_buffer = NlaBuffer::new(&buffer);
-    let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
-
-    if let DestinationCtrlAttrs::FwdMethod(parsed_fwd) = parsed {
-        assert_eq!(forward_type, parsed_fwd);
-    } else {
-        panic!("Expected FwdMethod variant");
-    }
-}
-
-#[test]
-fn test_tunnel_type_round_trip() {
-    let tunnel_type = TunnelType::None;
-
-    let nla = DestinationCtrlAttrs::TunType(tunnel_type);
-    let mut buffer = vec![0u8; nla.buffer_len()];
-    nla.emit(&mut buffer);
-
-    let nla_buffer = NlaBuffer::new(&buffer);
-    let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
-
-    if let DestinationCtrlAttrs::TunType(parsed_type) = parsed {
-        assert_eq!(tunnel_type, parsed_type);
-    } else {
-        panic!("Expected TunType variant");
-    }
-}
-
-#[test]
-fn test_tunnel_flags_round_trip() {
-    let tunnel_flags = TunnelFlags(0x1234);
-
-    let nla = DestinationCtrlAttrs::TunFlags(tunnel_flags);
-    let mut buffer = vec![0u8; nla.buffer_len()];
-    nla.emit(&mut buffer);
-
-    let nla_buffer = NlaBuffer::new(&buffer);
-    let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
-
-    if let DestinationCtrlAttrs::TunFlags(parsed_flags) = parsed {
-        assert_eq!(tunnel_flags, parsed_flags);
-    } else {
-        panic!("Expected TunFlags variant");
-    }
-}
-
-#[test]
-fn test_stats64_round_trip() {
-    let stats_attrs = vec![
-        Stats64Attr::ConnCount(100),
-        Stats64Attr::IncPktCount(200),
-        Stats64Attr::OutPktCount(300),
-        Stats64Attr::IncByteCount(400),
-        Stats64Attr::OutByteCount(500),
-        Stats64Attr::ConnRate(600),
-        Stats64Attr::IncPktRate(700),
-        Stats64Attr::OutPktRate(800),
-        Stats64Attr::IncByteRate(900),
-        Stats64Attr::OutByteRate(1000),
-    ];
-
-    let stats64 = Stats64::from_nlas(stats_attrs).unwrap();
-
-    assert_eq!(stats64.connections, 100);
-    assert_eq!(stats64.incoming_packets, 200);
-    assert_eq!(stats64.outgoing_packets, 300);
-    assert_eq!(stats64.incoming_bytes, 400);
-    assert_eq!(stats64.outgoing_bytes, 500);
-    assert_eq!(stats64.connection_rate, 600);
-    assert_eq!(stats64.incoming_packet_rate, 700);
-    assert_eq!(stats64.outgoing_packet_rate, 800);
-    assert_eq!(stats64.incoming_byte_rate, 900);
-    assert_eq!(stats64.outgoing_byte_rate, 1000);
 }
 
 #[test]

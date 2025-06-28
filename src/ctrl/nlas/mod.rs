@@ -196,3 +196,37 @@ impl Stats64 {
         Ok(stats)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stats64_round_trip() {
+        let stats_attrs = vec![
+            Stats64Attr::ConnCount(100),
+            Stats64Attr::IncPktCount(200),
+            Stats64Attr::OutPktCount(300),
+            Stats64Attr::IncByteCount(400),
+            Stats64Attr::OutByteCount(500),
+            Stats64Attr::ConnRate(600),
+            Stats64Attr::IncPktRate(700),
+            Stats64Attr::OutPktRate(800),
+            Stats64Attr::IncByteRate(900),
+            Stats64Attr::OutByteRate(1000),
+        ];
+
+        let stats64 = Stats64::from_nlas(stats_attrs).unwrap();
+
+        assert_eq!(stats64.connections, 100);
+        assert_eq!(stats64.incoming_packets, 200);
+        assert_eq!(stats64.outgoing_packets, 300);
+        assert_eq!(stats64.incoming_bytes, 400);
+        assert_eq!(stats64.outgoing_bytes, 500);
+        assert_eq!(stats64.connection_rate, 600);
+        assert_eq!(stats64.incoming_packet_rate, 700);
+        assert_eq!(stats64.outgoing_packet_rate, 800);
+        assert_eq!(stats64.incoming_byte_rate, 900);
+        assert_eq!(stats64.outgoing_byte_rate, 1000);
+    }
+}

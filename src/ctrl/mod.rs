@@ -167,3 +167,74 @@ fn parse_ctrlnlas(buf: &[u8]) -> Result<Vec<IpvsCtrlAttrs>, DecodeError> {
 
     Ok(nlas)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ctrl::nlas::{
+        service::{Protocol, SvcCtrlAttrs},
+        AddressFamily,
+    };
+    use std::convert::TryFrom;
+
+    #[test]
+    fn test_ipvs_ctrl_cmd_round_trip() {
+        let commands = [
+            IpvsCtrlCmd::Unspec,
+            IpvsCtrlCmd::NewService,
+            IpvsCtrlCmd::SetService,
+            IpvsCtrlCmd::DelService,
+            IpvsCtrlCmd::GetService,
+            IpvsCtrlCmd::NewDest,
+            IpvsCtrlCmd::SetDest,
+            IpvsCtrlCmd::DelDest,
+            IpvsCtrlCmd::GetDest,
+        ];
+
+        for cmd in &commands {
+            let as_u8: u8 = (*cmd).into();
+            let from_u8 = IpvsCtrlCmd::try_from(as_u8).unwrap();
+            assert_eq!(*cmd, from_u8);
+        }
+    }
+
+    #[test]
+    fn test_ipvs_service_ctrl_serialize() {
+        let service_attrs = vec![
+            SvcCtrlAttrs::AddressFamily(AddressFamily::IPv4),
+            SvcCtrlAttrs::Protocol(Protocol::TCP),
+            SvcCtrlAttrs::Port(80),
+        ];
+
+        let ctrl_msg = IpvsServiceCtrl {
+            cmd: IpvsCtrlCmd::GetService,
+            nlas: vec![crate::ctrl::nlas::IpvsCtrlAttrs::Service(
+                service_attrs,
+            )],
+            family_id: 123,
+        };
+
+        // Test serialize without dump flag
+        let serialized = ctrl_msg.clone().serialize(false);
+        assert!(!serialized.is_empty());
+        assert!(serialized.len() > 16); // Should have netlink header + genl header + payload
+
+        // Test serialize with dump flag
+        let serialized_dump = ctrl_msg.serialize(true);
+        assert!(!serialized_dump.is_empty());
+        assert!(serialized_dump.len() > 16);
+
+        // Dump version should be same size (just different flags)
+        assert_eq!(serialized.len(), serialized_dump.len());
+
+        // Verify the netlink message structure by checking header bytes
+        // First 4 bytes should be message length
+        let msg_len = u32::from_ne_bytes([
+            serialized[0],
+            serialized[1],
+            serialized[2],
+            serialized[3],
+        ]);
+        assert_eq!(msg_len as usize, serialized.len());
+    }
+}

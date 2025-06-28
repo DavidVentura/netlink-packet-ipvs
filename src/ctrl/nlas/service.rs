@@ -215,6 +215,104 @@ mod tests {
         nm.gen_netmask(buf.as_mut_slice());
         assert_eq!(buf.as_slice(), &[0xff, 0xff, 0xff, 0xff]);
     }
+
+    #[test]
+    fn test_address_family_round_trip() {
+        use super::{AddressFamily, SvcCtrlAttrs};
+        use netlink_packet_utils::{
+            nla::NlaBuffer,
+            traits::{Emitable, Parseable},
+        };
+
+        let test_cases = [AddressFamily::IPv4, AddressFamily::IPv6];
+
+        for addr_family in &test_cases {
+            let nla = SvcCtrlAttrs::AddressFamily(*addr_family);
+            let mut buffer = vec![0u8; nla.buffer_len()];
+            nla.emit(&mut buffer);
+
+            let nla_buffer = NlaBuffer::new(&buffer);
+            let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+            if let SvcCtrlAttrs::AddressFamily(parsed_af) = parsed {
+                assert_eq!(*addr_family, parsed_af);
+            } else {
+                panic!("Expected AddressFamily variant");
+            }
+        }
+    }
+
+    #[test]
+    fn test_protocol_round_trip() {
+        use super::{Protocol, SvcCtrlAttrs};
+        use netlink_packet_utils::{
+            nla::NlaBuffer,
+            traits::{Emitable, Parseable},
+        };
+
+        let test_cases = [Protocol::TCP, Protocol::UDP, Protocol::SCTP];
+
+        for protocol in &test_cases {
+            let nla = SvcCtrlAttrs::Protocol(*protocol);
+            let mut buffer = vec![0u8; nla.buffer_len()];
+            nla.emit(&mut buffer);
+
+            let nla_buffer = NlaBuffer::new(&buffer);
+            let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+            if let SvcCtrlAttrs::Protocol(parsed_protocol) = parsed {
+                assert_eq!(*protocol, parsed_protocol);
+            } else {
+                panic!("Expected Protocol variant");
+            }
+        }
+    }
+
+    #[test]
+    fn test_scheduler_round_trip() {
+        use super::{Scheduler, SvcCtrlAttrs};
+        use netlink_packet_utils::{
+            nla::NlaBuffer,
+            traits::{Emitable, Parseable},
+        };
+
+        let schedulers = [
+            Scheduler::RoundRobin,
+            Scheduler::WeightedRoundRobin,
+            Scheduler::LeastConnection,
+            Scheduler::WeightedLeastConnection,
+            Scheduler::LocalityBasedLeastConnection,
+            Scheduler::LocalityBasedLeastConnectionWithReplication,
+            Scheduler::DestinationHashing,
+            Scheduler::SourceHashing,
+            Scheduler::ShortestExpectedDelay,
+            Scheduler::NeverQueue,
+            Scheduler::WeightedFailover,
+            Scheduler::WeightedOverflow,
+            Scheduler::MaglevHashing,
+        ];
+
+        for scheduler in &schedulers {
+            let nla = SvcCtrlAttrs::Scheduler(*scheduler);
+            let mut buffer = vec![0u8; nla.buffer_len()];
+            nla.emit(&mut buffer);
+
+            let nla_buffer = NlaBuffer::new(&buffer);
+            let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+            if let SvcCtrlAttrs::Scheduler(parsed_scheduler) = parsed {
+                assert_eq!(*scheduler, parsed_scheduler);
+            } else {
+                panic!("Expected Scheduler variant");
+            }
+        }
+
+        for scheduler in &schedulers {
+            let string_repr = scheduler.as_string();
+            let from_string = Scheduler::from(string_repr.as_str());
+            assert_eq!(*scheduler, from_string);
+        }
+    }
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Flags(pub u32);

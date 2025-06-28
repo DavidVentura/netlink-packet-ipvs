@@ -412,3 +412,67 @@ impl From<&TunnelType> for u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use netlink_packet_utils::{
+        nla::NlaBuffer,
+        traits::{Emitable, Parseable},
+    };
+
+    #[test]
+    fn test_forward_type_round_trip() {
+        // Only test ForwardType::Masquerade since others panic in the current implementation
+        let forward_type = ForwardType::Masquerade;
+
+        let nla = DestinationCtrlAttrs::FwdMethod(forward_type);
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        if let DestinationCtrlAttrs::FwdMethod(parsed_fwd) = parsed {
+            assert_eq!(forward_type, parsed_fwd);
+        } else {
+            panic!("Expected FwdMethod variant");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_type_round_trip() {
+        let tunnel_type = TunnelType::None;
+
+        let nla = DestinationCtrlAttrs::TunType(tunnel_type);
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        if let DestinationCtrlAttrs::TunType(parsed_type) = parsed {
+            assert_eq!(tunnel_type, parsed_type);
+        } else {
+            panic!("Expected TunType variant");
+        }
+    }
+
+    #[test]
+    fn test_tunnel_flags_round_trip() {
+        let tunnel_flags = TunnelFlags(0x1234);
+
+        let nla = DestinationCtrlAttrs::TunFlags(tunnel_flags);
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        if let DestinationCtrlAttrs::TunFlags(parsed_flags) = parsed {
+            assert_eq!(tunnel_flags, parsed_flags);
+        } else {
+            panic!("Expected TunFlags variant");
+        }
+    }
+}
