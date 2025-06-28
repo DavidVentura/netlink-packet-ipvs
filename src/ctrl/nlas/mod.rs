@@ -75,7 +75,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Parseable<NlaBuffer<&'a T>>
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AddrBytes(Vec<u8>);
+pub struct AddrBytes(pub Vec<u8>);
 
 impl AddrBytes {
     pub fn as_ipaddr(&self, family: AddressFamily) -> IpAddr {

@@ -139,6 +139,12 @@ pub struct Netmask {
 }
 
 impl Netmask {
+    pub fn without_af(ones: u8) -> Netmask {
+        Netmask {
+            ones,
+            address_family: None,
+        }
+    }
     pub fn new(ones: u8, address_family: AddressFamily) -> Netmask {
         let max = match address_family {
             AddressFamily::IPv4 => 32,

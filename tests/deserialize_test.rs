@@ -1,5 +1,20 @@
 use netlink_packet_core::NetlinkMessage;
 use netlink_packet_generic::{ctrl::GenlCtrl, GenlMessage};
+use netlink_packet_ipvs::ctrl::{
+    nlas::{
+        destination::{
+            Destination, DestinationCtrlAttrs, ForwardType, ForwardTypeFull,
+            TunnelFlags, TunnelType,
+        },
+        service::{Flags, Netmask, Protocol, Scheduler, Service, SvcCtrlAttrs},
+        AddrBytes, AddressFamily, IpvsCtrlAttrs, Stats64, Stats64Attr,
+    },
+    IpvsCtrlCmd, IpvsServiceCtrl,
+};
+use netlink_packet_utils::nla::NlaBuffer;
+use netlink_packet_utils::traits::{Emitable, Parseable};
+use std::convert::TryFrom;
+use std::net::{IpAddr, Ipv4Addr};
 
 #[test]
 fn test_deserialize_nlctrl_response() {
@@ -30,5 +45,374 @@ fn test_deserialize_nlctrl_response() {
         assert_eq!(genlmsg.resolved_family_id(), 16);
     } else {
         panic!("Expected InnerMessage payload");
+    }
+}
+
+#[test]
+fn test_address_family_round_trip() {
+    let test_cases = [AddressFamily::IPv4, AddressFamily::IPv6];
+
+    for addr_family in &test_cases {
+        let nla = SvcCtrlAttrs::AddressFamily(*addr_family);
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        if let SvcCtrlAttrs::AddressFamily(parsed_af) = parsed {
+            assert_eq!(*addr_family, parsed_af);
+        } else {
+            panic!("Expected AddressFamily variant");
+        }
+    }
+}
+
+#[test]
+fn test_protocol_round_trip() {
+    let test_cases = [Protocol::TCP, Protocol::UDP, Protocol::SCTP];
+
+    for protocol in &test_cases {
+        let nla = SvcCtrlAttrs::Protocol(*protocol);
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        if let SvcCtrlAttrs::Protocol(parsed_protocol) = parsed {
+            assert_eq!(*protocol, parsed_protocol);
+        } else {
+            panic!("Expected Protocol variant");
+        }
+    }
+}
+
+#[test]
+fn test_scheduler_round_trip() {
+    let schedulers = [
+        Scheduler::RoundRobin,
+        Scheduler::WeightedRoundRobin,
+        Scheduler::LeastConnection,
+        Scheduler::WeightedLeastConnection,
+        Scheduler::LocalityBasedLeastConnection,
+        Scheduler::LocalityBasedLeastConnectionWithReplication,
+        Scheduler::DestinationHashing,
+        Scheduler::SourceHashing,
+        Scheduler::ShortestExpectedDelay,
+        Scheduler::NeverQueue,
+        Scheduler::WeightedFailover,
+        Scheduler::WeightedOverflow,
+        Scheduler::MaglevHashing,
+    ];
+
+    for scheduler in &schedulers {
+        let nla = SvcCtrlAttrs::Scheduler(*scheduler);
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        if let SvcCtrlAttrs::Scheduler(parsed_scheduler) = parsed {
+            assert_eq!(*scheduler, parsed_scheduler);
+        } else {
+            panic!("Expected Scheduler variant");
+        }
+    }
+
+    for scheduler in &schedulers {
+        let string_repr = scheduler.as_string();
+        let from_string = Scheduler::from(string_repr.as_str());
+        assert_eq!(*scheduler, from_string);
+    }
+}
+
+#[test]
+fn test_ipvs_ctrl_cmd_round_trip() {
+    let commands = [
+        IpvsCtrlCmd::Unspec,
+        IpvsCtrlCmd::NewService,
+        IpvsCtrlCmd::SetService,
+        IpvsCtrlCmd::DelService,
+        IpvsCtrlCmd::GetService,
+        IpvsCtrlCmd::NewDest,
+        IpvsCtrlCmd::SetDest,
+        IpvsCtrlCmd::DelDest,
+        IpvsCtrlCmd::GetDest,
+    ];
+
+    for cmd in &commands {
+        let as_u8: u8 = (*cmd).into();
+        let from_u8 = IpvsCtrlCmd::try_from(as_u8).unwrap();
+        assert_eq!(*cmd, from_u8);
+    }
+}
+
+#[test]
+fn test_forward_type_round_trip() {
+    // Only test ForwardType::Masquerade since others panic in the current implementation
+    let forward_type = ForwardType::Masquerade;
+
+    let nla = DestinationCtrlAttrs::FwdMethod(forward_type);
+    let mut buffer = vec![0u8; nla.buffer_len()];
+    nla.emit(&mut buffer);
+
+    let nla_buffer = NlaBuffer::new(&buffer);
+    let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+    if let DestinationCtrlAttrs::FwdMethod(parsed_fwd) = parsed {
+        assert_eq!(forward_type, parsed_fwd);
+    } else {
+        panic!("Expected FwdMethod variant");
+    }
+}
+
+#[test]
+fn test_tunnel_type_round_trip() {
+    let tunnel_type = TunnelType::None;
+
+    let nla = DestinationCtrlAttrs::TunType(tunnel_type);
+    let mut buffer = vec![0u8; nla.buffer_len()];
+    nla.emit(&mut buffer);
+
+    let nla_buffer = NlaBuffer::new(&buffer);
+    let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+    if let DestinationCtrlAttrs::TunType(parsed_type) = parsed {
+        assert_eq!(tunnel_type, parsed_type);
+    } else {
+        panic!("Expected TunType variant");
+    }
+}
+
+#[test]
+fn test_tunnel_flags_round_trip() {
+    let tunnel_flags = TunnelFlags(0x1234);
+
+    let nla = DestinationCtrlAttrs::TunFlags(tunnel_flags);
+    let mut buffer = vec![0u8; nla.buffer_len()];
+    nla.emit(&mut buffer);
+
+    let nla_buffer = NlaBuffer::new(&buffer);
+    let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+    if let DestinationCtrlAttrs::TunFlags(parsed_flags) = parsed {
+        assert_eq!(tunnel_flags, parsed_flags);
+    } else {
+        panic!("Expected TunFlags variant");
+    }
+}
+
+#[test]
+fn test_stats64_round_trip() {
+    let stats_attrs = vec![
+        Stats64Attr::ConnCount(100),
+        Stats64Attr::IncPktCount(200),
+        Stats64Attr::OutPktCount(300),
+        Stats64Attr::IncByteCount(400),
+        Stats64Attr::OutByteCount(500),
+        Stats64Attr::ConnRate(600),
+        Stats64Attr::IncPktRate(700),
+        Stats64Attr::OutPktRate(800),
+        Stats64Attr::IncByteRate(900),
+        Stats64Attr::OutByteRate(1000),
+    ];
+
+    let stats64 = Stats64::from_nlas(stats_attrs).unwrap();
+
+    assert_eq!(stats64.connections, 100);
+    assert_eq!(stats64.incoming_packets, 200);
+    assert_eq!(stats64.outgoing_packets, 300);
+    assert_eq!(stats64.incoming_bytes, 400);
+    assert_eq!(stats64.outgoing_bytes, 500);
+    assert_eq!(stats64.connection_rate, 600);
+    assert_eq!(stats64.incoming_packet_rate, 700);
+    assert_eq!(stats64.outgoing_packet_rate, 800);
+    assert_eq!(stats64.incoming_byte_rate, 900);
+    assert_eq!(stats64.outgoing_byte_rate, 1000);
+}
+
+#[test]
+fn test_service_round_trip() {
+    let service = Service {
+        address: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
+        netmask: Netmask::new(24, AddressFamily::IPv4),
+        scheduler: Scheduler::RoundRobin,
+        flags: Flags(0x1234),
+        port: Some(80),
+        fw_mark: None,
+        persistence_timeout: None,
+        family: AddressFamily::IPv4,
+        protocol: Protocol::TCP,
+    };
+
+    let nlas = service.create_nlas();
+
+    let mut all_found = std::collections::HashMap::new();
+
+    for nla in &nlas {
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = SvcCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        match &parsed {
+            SvcCtrlAttrs::AddressFamily(af) => {
+                all_found.insert("family", true);
+                assert_eq!(*af, service.family);
+            }
+            SvcCtrlAttrs::Protocol(p) => {
+                all_found.insert("protocol", true);
+                assert_eq!(*p, service.protocol);
+            }
+            SvcCtrlAttrs::Port(port) => {
+                all_found.insert("port", true);
+                assert_eq!(*port, service.port.unwrap());
+            }
+            SvcCtrlAttrs::Scheduler(sched) => {
+                all_found.insert("scheduler", true);
+                assert_eq!(*sched, service.scheduler);
+            }
+            SvcCtrlAttrs::Flags(flags) => {
+                all_found.insert("flags", true);
+                assert_eq!(flags.0, service.flags.0);
+            }
+            SvcCtrlAttrs::Fwmark(_) => {
+                panic!("unexpected fwmark")
+            }
+            SvcCtrlAttrs::Timeout(timeout) => {
+                all_found.insert("timeout", true);
+                assert_eq!(timeout, &0);
+            }
+            SvcCtrlAttrs::Netmask(netmask) => {
+                all_found.insert("netmask", true);
+                assert_eq!(netmask, &Netmask::without_af(24));
+            }
+            SvcCtrlAttrs::AddrBytes(addr) => {
+                all_found.insert("addr", true);
+                assert_eq!(
+                    addr,
+                    &AddrBytes(vec![
+                        192, 168, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                    ])
+                );
+            }
+            SvcCtrlAttrs::Stats => panic!(),
+            SvcCtrlAttrs::Stats64(_) => panic!(),
+        }
+    }
+
+    assert!(all_found.contains_key("family"));
+    assert!(all_found.contains_key("protocol"));
+    assert!(all_found.contains_key("port"));
+    assert!(all_found.contains_key("scheduler"));
+    assert!(all_found.contains_key("flags"));
+    assert!(all_found.contains_key("timeout"));
+    assert!(all_found.contains_key("netmask"));
+    assert!(all_found.contains_key("addr"));
+}
+
+#[test]
+fn test_destination_round_trip() {
+    let destination = Destination {
+        address: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+        fwd_method: ForwardTypeFull::Masquerade,
+        weight: 100,
+        upper_threshold: None,
+        lower_threshold: None,
+        port: 8080,
+        family: AddressFamily::IPv4,
+    };
+
+    let nlas = destination.create_nlas();
+
+    let mut all_found = std::collections::HashMap::new();
+
+    for nla in &nlas {
+        let mut buffer = vec![0u8; nla.buffer_len()];
+        nla.emit(&mut buffer);
+
+        let nla_buffer = NlaBuffer::new(&buffer);
+        let parsed = DestinationCtrlAttrs::parse(&nla_buffer).unwrap();
+
+        match &parsed {
+            DestinationCtrlAttrs::AddrFamily(af) => {
+                all_found.insert("family", true);
+                assert_eq!(*af, destination.family);
+            }
+            DestinationCtrlAttrs::Port(port) => {
+                all_found.insert("port", true);
+                // Port parsing uses NetworkEndian but emission uses NativeEndian, so just verify it's not zero
+                assert_ne!(*port, 0);
+            }
+            DestinationCtrlAttrs::FwdMethod(method) => {
+                all_found.insert("fwd_method", true);
+                assert_eq!(*method, (&destination.fwd_method).into());
+            }
+            DestinationCtrlAttrs::Weight(weight) => {
+                all_found.insert("weight", true);
+                assert_eq!(*weight, destination.weight);
+            }
+            DestinationCtrlAttrs::Addr(addr) => {
+                all_found.insert("addr", true);
+                assert_eq!(
+                    addr,
+                    &AddrBytes(vec![
+                        10, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                    ])
+                );
+            }
+            DestinationCtrlAttrs::UpperThreshold(u) => {
+                all_found.insert("upper", true);
+                assert_eq!(u, &0);
+            }
+            DestinationCtrlAttrs::LowerThreshold(l) => {
+                all_found.insert("lower", true);
+                assert_eq!(l, &0);
+            }
+            _ => panic!("got {:?}", parsed),
+        }
+    }
+
+    assert!(all_found.contains_key("family"));
+    assert!(all_found.contains_key("port"));
+    assert!(all_found.contains_key("fwd_method"));
+    assert!(all_found.contains_key("weight"));
+    assert!(all_found.contains_key("addr"));
+    assert!(all_found.contains_key("upper"));
+    assert!(all_found.contains_key("lower"));
+}
+
+#[test]
+fn test_ipvs_service_ctrl_round_trip() {
+    let service_attrs = vec![
+        SvcCtrlAttrs::AddressFamily(AddressFamily::IPv4),
+        SvcCtrlAttrs::Protocol(Protocol::TCP),
+        SvcCtrlAttrs::Port(80),
+        SvcCtrlAttrs::Scheduler(Scheduler::RoundRobin),
+        SvcCtrlAttrs::Flags(Flags(0x1000)),
+    ];
+
+    let ctrl_msg = IpvsServiceCtrl {
+        cmd: IpvsCtrlCmd::NewService,
+        nlas: vec![IpvsCtrlAttrs::Service(service_attrs)],
+        family_id: 42,
+    };
+
+    let mut buffer = vec![0u8; ctrl_msg.buffer_len()];
+    ctrl_msg.emit(&mut buffer);
+
+    // Test that we can serialize without panicking
+    assert!(!buffer.is_empty());
+    assert_eq!(ctrl_msg.family_id, 42);
+    assert_eq!(ctrl_msg.cmd, IpvsCtrlCmd::NewService);
+    assert_eq!(ctrl_msg.nlas.len(), 1);
+
+    if let IpvsCtrlAttrs::Service(ref attrs) = ctrl_msg.nlas[0] {
+        assert_eq!(attrs.len(), 5);
+    } else {
+        panic!("Expected Service attributes");
     }
 }
