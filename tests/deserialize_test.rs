@@ -14,7 +14,8 @@ use netlink_packet_ipvs::ctrl::{
 use netlink_packet_utils::nla::NlaBuffer;
 use netlink_packet_utils::traits::{Emitable, Parseable};
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::num::NonZero;
 
 #[test]
 fn test_deserialize_nlctrl_response() {
@@ -415,4 +416,57 @@ fn test_ipvs_service_ctrl_round_trip() {
     } else {
         panic!("Expected Service attributes");
     }
+}
+
+#[test]
+fn test_service_from_nlas_round_trip() {
+    let original_service = Service {
+        address: IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+        netmask: Netmask::new(16, AddressFamily::IPv4),
+        scheduler: Scheduler::WeightedLeastConnection,
+        flags: Flags(0x4321),
+        port: None, // Using fwmark instead of port
+        fw_mark: Some(0x12345678),
+        persistence_timeout: Some(NonZero::new(300).unwrap()),
+        family: AddressFamily::IPv6,
+        protocol: Protocol::UDP,
+    };
+
+    let nlas = original_service.create_nlas();
+
+    // Create fake stats for from_nlas (it requires stats64)
+    let mut nlas_with_stats = nlas;
+    nlas_with_stats.push(SvcCtrlAttrs::Stats64(Stats64 {
+        connections: 42,
+        incoming_packets: 100,
+        outgoing_packets: 200,
+        incoming_bytes: 1000,
+        outgoing_bytes: 2000,
+        connection_rate: 10,
+        incoming_packet_rate: 20,
+        outgoing_packet_rate: 30,
+        incoming_byte_rate: 40,
+        outgoing_byte_rate: 50,
+    }));
+
+    let service_extended = Service::from_nlas(&nlas_with_stats).unwrap();
+    let parsed_service = &service_extended.service;
+
+    assert_eq!(parsed_service.address, original_service.address);
+    assert_eq!(parsed_service.family, original_service.family);
+    assert_eq!(parsed_service.protocol, original_service.protocol);
+    assert_eq!(parsed_service.scheduler, original_service.scheduler);
+    assert_eq!(parsed_service.flags.0, original_service.flags.0);
+    assert_eq!(parsed_service.port, original_service.port);
+    assert_eq!(parsed_service.fw_mark, original_service.fw_mark);
+    assert_eq!(
+        parsed_service.persistence_timeout,
+        original_service.persistence_timeout
+    );
+
+    // Netmask should match - both will have address_family reconstructed during parsing
+    assert_eq!(
+        parsed_service.netmask,
+        Netmask::new(16, AddressFamily::IPv6)
+    );
 }
