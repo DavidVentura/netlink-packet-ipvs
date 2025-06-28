@@ -524,3 +524,81 @@ fn test_destination_from_nlas_round_trip() {
     assert_eq!(destination_extended.persistent_connections, 10);
     assert_eq!(destination_extended.stats64.connections, 85);
 }
+
+#[test]
+fn test_ipvs_service_ctrl_serialize_deserialize_round_trip() {
+    let original_service_attrs = vec![
+        SvcCtrlAttrs::AddressFamily(AddressFamily::IPv6),
+        SvcCtrlAttrs::Protocol(Protocol::UDP),
+        SvcCtrlAttrs::Port(443),
+        SvcCtrlAttrs::Scheduler(Scheduler::WeightedLeastConnection),
+        SvcCtrlAttrs::Flags(Flags(0x5678)),
+    ];
+
+    let original_ctrl_msg = IpvsServiceCtrl {
+        cmd: IpvsCtrlCmd::NewService,
+        nlas: vec![IpvsCtrlAttrs::Service(original_service_attrs.clone())],
+        family_id: 42,
+    };
+
+    let serialized = original_ctrl_msg.clone().serialize(false);
+    let netlink_msg =
+        NetlinkMessage::<GenlMessage<IpvsServiceCtrl>>::deserialize(
+            &serialized,
+        )
+        .unwrap();
+
+    if let netlink_packet_core::NetlinkPayload::InnerMessage(genl_msg) =
+        netlink_msg.payload
+    {
+        let parsed_ctrl_msg = &genl_msg.payload;
+
+        assert_eq!(parsed_ctrl_msg.cmd, original_ctrl_msg.cmd);
+        assert_eq!(parsed_ctrl_msg.nlas.len(), original_ctrl_msg.nlas.len());
+        let nla = &parsed_ctrl_msg.nlas[0];
+
+        if let IpvsCtrlAttrs::Service(ref parsed_service_attrs) = nla {
+            assert_eq!(
+                parsed_service_attrs.len(),
+                original_service_attrs.len()
+            );
+
+            let mut found_attrs = std::collections::HashMap::new();
+            for attr in parsed_service_attrs {
+                match attr {
+                    SvcCtrlAttrs::AddressFamily(af) => {
+                        found_attrs.insert("family", true);
+                        assert_eq!(*af, AddressFamily::IPv6);
+                    }
+                    SvcCtrlAttrs::Protocol(proto) => {
+                        found_attrs.insert("protocol", true);
+                        assert_eq!(*proto, Protocol::UDP);
+                    }
+                    SvcCtrlAttrs::Port(port) => {
+                        found_attrs.insert("port", true);
+                        assert_eq!(*port, 443);
+                    }
+                    SvcCtrlAttrs::Scheduler(sched) => {
+                        found_attrs.insert("scheduler", true);
+                        assert_eq!(*sched, Scheduler::WeightedLeastConnection);
+                    }
+                    SvcCtrlAttrs::Flags(flags) => {
+                        found_attrs.insert("flags", true);
+                        assert_eq!(flags.0, 0x5678);
+                    }
+                    _ => panic!("Unexpected attribute: {:?}", attr),
+                }
+            }
+
+            assert!(found_attrs.contains_key("family"));
+            assert!(found_attrs.contains_key("protocol"));
+            assert!(found_attrs.contains_key("port"));
+            assert!(found_attrs.contains_key("scheduler"));
+            assert!(found_attrs.contains_key("flags"));
+        } else {
+            panic!("Expected Service attributes, got: {:?}", nla);
+        }
+    } else {
+        panic!("Expected InnerMessage payload");
+    }
+}
