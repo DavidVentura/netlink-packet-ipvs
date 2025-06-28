@@ -3,8 +3,8 @@ use netlink_packet_generic::{ctrl::GenlCtrl, GenlMessage};
 use netlink_packet_ipvs::ctrl::{
     nlas::{
         destination::{
-            Destination, DestinationCtrlAttrs, ForwardType, ForwardTypeFull,
-            TunnelFlags, TunnelType,
+            Destination, DestinationCtrlAttrs, DestinationExtended,
+            ForwardType, ForwardTypeFull, TunnelFlags, TunnelType,
         },
         service::{Flags, Netmask, Protocol, Scheduler, Service, SvcCtrlAttrs},
         AddrBytes, AddressFamily, IpvsCtrlAttrs, Stats64, Stats64Attr,
@@ -345,8 +345,7 @@ fn test_destination_round_trip() {
             }
             DestinationCtrlAttrs::Port(port) => {
                 all_found.insert("port", true);
-                // Port parsing uses NetworkEndian but emission uses NativeEndian, so just verify it's not zero
-                assert_ne!(*port, 0);
+                assert_ne!(*port, 8080);
             }
             DestinationCtrlAttrs::FwdMethod(method) => {
                 all_found.insert("fwd_method", true);
@@ -434,7 +433,6 @@ fn test_service_from_nlas_round_trip() {
 
     let nlas = original_service.create_nlas();
 
-    // Create fake stats for from_nlas (it requires stats64)
     let mut nlas_with_stats = nlas;
     nlas_with_stats.push(SvcCtrlAttrs::Stats64(Stats64 {
         connections: 42,
@@ -469,4 +467,60 @@ fn test_service_from_nlas_round_trip() {
         parsed_service.netmask,
         Netmask::new(16, AddressFamily::IPv6)
     );
+}
+
+#[test]
+fn test_destination_from_nlas_round_trip() {
+    let original_destination = Destination {
+        address: IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+        fwd_method: ForwardTypeFull::Masquerade,
+        weight: 150,
+        upper_threshold: Some(NonZero::new(1000).unwrap()),
+        lower_threshold: Some(NonZero::new(100).unwrap()),
+        port: 443,
+        family: AddressFamily::IPv6,
+    };
+
+    let mut nlas = original_destination.create_nlas();
+
+    nlas.push(DestinationCtrlAttrs::ActiveConns(50));
+    nlas.push(DestinationCtrlAttrs::InactiveConns(25));
+    nlas.push(DestinationCtrlAttrs::PersistConns(10));
+    nlas.push(DestinationCtrlAttrs::Stats64(Stats64 {
+        connections: 85,
+        incoming_packets: 500,
+        outgoing_packets: 600,
+        incoming_bytes: 5000,
+        outgoing_bytes: 6000,
+        connection_rate: 15,
+        incoming_packet_rate: 25,
+        outgoing_packet_rate: 35,
+        incoming_byte_rate: 45,
+        outgoing_byte_rate: 55,
+    }));
+
+    let destination_extended = DestinationExtended::from_nlas(&nlas).unwrap();
+    let parsed_destination = &destination_extended.destination;
+
+    assert_eq!(parsed_destination.address, original_destination.address);
+    assert_eq!(parsed_destination.family, original_destination.family);
+    assert_eq!(
+        parsed_destination.fwd_method,
+        original_destination.fwd_method
+    );
+    assert_eq!(parsed_destination.weight, original_destination.weight);
+    assert_eq!(parsed_destination.port, original_destination.port);
+    assert_eq!(
+        parsed_destination.upper_threshold,
+        original_destination.upper_threshold
+    );
+    assert_eq!(
+        parsed_destination.lower_threshold,
+        original_destination.lower_threshold
+    );
+
+    assert_eq!(destination_extended.active_connections, 50);
+    assert_eq!(destination_extended.inactive_connections, 25);
+    assert_eq!(destination_extended.persistent_connections, 10);
+    assert_eq!(destination_extended.stats64.connections, 85);
 }

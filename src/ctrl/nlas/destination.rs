@@ -136,7 +136,7 @@ impl Destination {
             IpAddr::V6(v) => v.octets().to_vec(),
         };
         ret.push(DestinationCtrlAttrs::Addr(AddrBytes(octets)));
-        ret.push(DestinationCtrlAttrs::Port(u16::to_be(self.port)));
+        ret.push(DestinationCtrlAttrs::Port(self.port));
         ret.push(DestinationCtrlAttrs::FwdMethod((&self.fwd_method).into()));
         ret.push(DestinationCtrlAttrs::Weight(self.weight));
         if let ForwardTypeFull::Tunnel {
@@ -146,13 +146,13 @@ impl Destination {
         } = self.fwd_method
         {
             ret.push(DestinationCtrlAttrs::TunType(tunnel_type));
-            ret.push(DestinationCtrlAttrs::TunPort(u16::to_be(tunnel_port)));
+            ret.push(DestinationCtrlAttrs::TunPort(tunnel_port));
             ret.push(DestinationCtrlAttrs::TunFlags(tunnel_flags));
         }
         // d /e /f = type port flags = 0
         let ut = self.upper_threshold.map(|x| x.get()).unwrap_or(0);
         ret.push(DestinationCtrlAttrs::UpperThreshold(ut));
-        let lt = self.upper_threshold.map(|x| x.get()).unwrap_or(0);
+        let lt = self.lower_threshold.map(|x| x.get()).unwrap_or(0);
         ret.push(DestinationCtrlAttrs::LowerThreshold(lt));
 
         ret
