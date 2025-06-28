@@ -7,8 +7,7 @@ use netlink_packet_generic::{
 };
 use netlink_sys::{protocols::NETLINK_GENERIC, Socket, SocketAddr};
 
-#[test]
-fn query_family_id() {
+fn main() {
     let mut socket = Socket::new(NETLINK_GENERIC).unwrap();
     socket.bind_auto().unwrap();
     socket.connect(&SocketAddr::new(0, 0)).unwrap();
@@ -22,15 +21,16 @@ fn query_family_id() {
     nlmsg.header.flags = NLM_F_REQUEST;
     nlmsg.finalize();
 
-    println!("Buffer length: {}", nlmsg.buffer_len());
     let mut txbuf = vec![0u8; nlmsg.buffer_len()];
     nlmsg.serialize(&mut txbuf);
 
     socket.send(&txbuf, 0).unwrap();
 
     let (rxbuf, _addr) = socket.recv_from_full().unwrap();
+    println!("{:?}", rxbuf);
     let rx_packet =
         <NetlinkMessage<GenlMessage<GenlCtrl>>>::deserialize(&rxbuf).unwrap();
+    println!("{:?}", rx_packet);
 
     if let NetlinkPayload::InnerMessage(genlmsg) = rx_packet.payload {
         if GenlCtrlCmd::NewFamily == genlmsg.payload.cmd {
@@ -47,6 +47,7 @@ fn query_family_id() {
                 })
                 .expect("Cannot find FamilyId attribute");
             // nlctrl's family must be 0x10
+            println!("family id is {}", family_id);
             assert_eq!(0x10, family_id);
         } else {
             panic!("Invalid payload type: {:?}", genlmsg.payload.cmd);
