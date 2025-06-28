@@ -251,7 +251,7 @@ impl From<&str> for Scheduler {
     }
 }
 impl Scheduler {
-    fn as_string(&self) -> String {
+    pub fn as_string(&self) -> String {
         match self {
             Scheduler::RoundRobin => "rr",
             Scheduler::WeightedRoundRobin => "wrr",
